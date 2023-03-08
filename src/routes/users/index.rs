@@ -1,5 +1,6 @@
 use axum::{body::Body, http::Request, Json};
 use bcrypt::{hash, DEFAULT_COST};
+use bson::oid::ObjectId;
 use bson::Document;
 use hmac::{Hmac, Mac};
 use jwt::VerifyWithKey;
@@ -76,7 +77,7 @@ pub async fn get_user() -> Json<Value> {
     // Json(json!())
 }
 
-pub async fn get_self(request: Request<Body>) -> String {
+pub async fn get_self(request: Request<Body>) -> Json<Value> {
     let headers = request.headers();
     let authorization = headers
         .get("authorization")
@@ -86,9 +87,21 @@ pub async fn get_self(request: Request<Body>) -> String {
 
     let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret").unwrap();
     let claims: BTreeMap<String, String> = authorization.verify_with_key(&key).unwrap();
-    let id = &claims["id"];
+    let id = claims["id"].to_string();
+    let object_id = ObjectId::parse_str(&id).expect("could not get objectid");
 
-    id.to_string()
+    let user_db = user_db().await.expect("could not connect to db");
+
+    let filter = doc! {"_id": object_id };
+    let user = user_db
+        .find_one(filter, None)
+        .await
+        .expect("could not find user")
+        .unwrap();
+
+    let user_json = bson_to_json(user);
+
+    Json(user_json)
 }
 
 #[derive(Deserialize)]
